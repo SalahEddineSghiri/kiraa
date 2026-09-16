@@ -3,12 +3,20 @@ const mocks=vi.hoisted(()=>({query:vi.fn(),connect:vi.fn(),llm:vi.fn(),run:vi.fn
 vi.mock("@/db/client",()=>({pool:{query:mocks.query,connect:mocks.connect}}));
 vi.mock("@/lib/llm",()=>({structuredCompletion:mocks.llm}));
 vi.mock("@/lib/ingestor",()=>({ingestFile:vi.fn()}));
-import { calculatorNode, reporterNode, extractorNode } from "@/lib/agent/graph";
+import { calculatorNode, reporterNode, extractorNode, ingestorNode, intentNode } from "@/lib/agent/graph";
 import { KiraaStateSchema } from "@/lib/schemas/contracts";
 import { verifyDriverEligibility } from "@/lib/engine";
 const state=(overrides:Record<string,unknown>={})=>KiraaStateSchema.parse({requestId:"test",rawInput:"test",...overrides});
 beforeEach(()=>vi.resetAllMocks());
 describe("production safeguards",()=>{
+  it("assembles OCR in the ingestor node and classifies only the user request",async()=>{
+    const ingested=await ingestorNode({state:state({userMessage:"Vérifie mon éligibilité",rawInput:"Vérifie mon éligibilité",documents:[{text:"PERMIS DE CONDUIRE",confidence:.95,engine:"tesseract"}]})});
+    expect(ingested.state.rawInput).toContain("PERMIS DE CONDUIRE");
+    mocks.llm.mockResolvedValue({intent:"validate_eligibility",confidence:.99});
+    const intended=await intentNode({state:ingested.state});
+    expect(intended.state.intent).toBe("validate_eligibility");
+    expect(mocks.llm.mock.lastCall?.[1]).toBe("Vérifie mon éligibilité");
+  });
   it("uses calendar birthday boundaries",()=>{
     expect(verifyDriverEligibility("2005-07-16","2020-01-01","2030-01-01","2026-07-15").age).toBe(20);
     expect(verifyDriverEligibility("2005-07-16","2020-01-01","2030-01-01","2026-07-16").age).toBe(21);

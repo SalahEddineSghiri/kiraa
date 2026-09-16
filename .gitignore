@@ -5,3 +5,5 @@ coverage
 *.log
 certs/
 *.dump
+playwright-report/
+test-results/

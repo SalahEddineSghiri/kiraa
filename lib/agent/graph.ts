@@ -10,7 +10,13 @@ const State=Annotation.Root({state:Annotation<KiraaState>({reducer:(_,v)=>v,defa
 const trace=(s:KiraaState,n:string)=>({...s,graphTrace:[...s.graphTrace,n]});
 const clarify=(s:KiraaState,message:string):KiraaState=>({...s,validation:{isValid:false,status:"CLARIFICATION_REQUIRED",errors:[message]},bookingStatus:"CLARIFICATION_REQUIRED"});
 const review=(s:KiraaState,message:string):KiraaState=>({...s,needsHumanReview:true,escalationReasons:[...s.escalationReasons,message]});
-export async function ingestorNode({state}:{state:KiraaState}) { return {state:trace(state,"ingestorNode")}; }
+export async function ingestorNode({state}:{state:KiraaState}) {
+  const next=trace(state,"ingestorNode");
+  if(!next.documents.length) return {state:next};
+  const text=next.documents.map(d=>d.text.trim()).filter(Boolean).join("\n");
+  if(!text) return {state:clarify(next,"Aucun texte exploitable dans le document. Envoyez une nouvelle image lisible.")};
+  return {state:{...next,rawInput:next.userMessage+"\n"+text,ocrConfidence:Math.min(...next.documents.map(d=>d.confidence))}};
+}
 export async function extractorNode({state}:{state:KiraaState}) {
   let next=trace(state,"extractorNode");
   if(process.env.NODE_ENV==="test" && next.intentOverride) return {state:next};
@@ -36,7 +42,7 @@ export async function intentNode({state}:{state:KiraaState}) {
   if(process.env.NODE_ENV==="test" && next.intentOverride) return {state:{...next,intent:next.intentOverride,intentConfidence:1}};
   const result=await structuredCompletion(
     'Classify rental intent. Return {intent,confidence}. Allowed intent: check_availability,calculate_total_cost,validate_eligibility,make_reservation,policy_query,human_escalation,out_of_scope. Never classify a price question as authorization to book.',
-    next.rawInput,z.object({intent:IntentSchema,confidence:z.number().min(0).max(1)}).strict());
+    next.userMessage||next.rawInput,z.object({intent:IntentSchema,confidence:z.number().min(0).max(1)}).strict());
   next={...next,intent:result.intent,intentConfidence:result.confidence};
   if(result.confidence<.85) next=clarify(next,"Veuillez préciser votre demande.");
   if(result.intent==="human_escalation") next=review(next,"Human assistance requested");
@@ -131,4 +137,12 @@ function compile() {
     .addEdge("calculatorNode","reporterNode").addEdge("reporterNode","explainerNode").addEdge("explainerNode",END).compile({checkpointer:saver});
 }
 export async function buildGraph(){return compiled??=compile();}
-export async function runAgent(state:KiraaState){return (await (await buildGraph()).invoke({state},{configurable:{thread_id:state.requestId}})).state;}
+export async function runAgent(state:KiraaState){
+  const graph=await buildGraph();
+  const thread_id=state.sessionId??state.requestId;
+  if(state.sessionId){
+    const previous=(await graph.getState({configurable:{thread_id}})).values?.state as KiraaState|undefined;
+    if(previous?.sessionId===state.sessionId) state={...state,params:{...previous.params,...state.params}};
+  }
+  return (await graph.invoke({state},{configurable:{thread_id}})).state;
+}

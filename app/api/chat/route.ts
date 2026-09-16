@@ -3,33 +3,36 @@ import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { ChatRequestSchema, KiraaStateSchema, ParamsSchema } from "@/lib/schemas/contracts";
 import { runAgent } from "@/lib/agent/graph";
-import { ingestFile } from "@/lib/ingestor";
+import { ingestFile, type Ingested } from "@/lib/ingestor";
 import { generateQuotePdf } from "@/lib/reporter";
 export const runtime="nodejs";
 export async function POST(request:Request) {
   try {
-    let message:string, params; let ocrConfidence=0;
+    let message:string, params, sessionId:string|undefined; let ocrConfidence=0, documents:Ingested[]=[];
     const size=Number(request.headers.get("content-length")??0);
     if(size>10*1024*1024) return NextResponse.json({error:"Requête trop volumineuse."},{status:413});
     if(request.headers.get("content-type")?.includes("multipart/form-data")) {
       const form=await request.formData();
-      const parsed=ChatRequestSchema.parse({message:String(form.get("message")??""),params:JSON.parse(String(form.get("params")??"{}"))});
-      message=parsed.message; params=parsed.params;
       const files=form.getAll("files").filter((v):v is File=>v instanceof File);
+      const suppliedMessage=String(form.get("message")??"").trim();
+      const parsed=ChatRequestSchema.parse({message:suppliedMessage||(files.length?"Vérifie mon éligibilité à partir du permis joint.":""),params:JSON.parse(String(form.get("params")??"{}"))});
+      message=parsed.message; params=parsed.params;
+      const submittedSession=form.get("sessionId");
+      sessionId=submittedSession?z.string().uuid().parse(submittedSession):undefined;
       if(files.length>5||files.reduce((n,f)=>n+f.size,0)>10*1024*1024) return NextResponse.json({error:"Maximum 5 fichiers et 10 MiB."},{status:413});
       const docs=await Promise.all(files.map(ingestFile));
       if(docs.some(d=>d.errors.length)) return NextResponse.json({error:"CLARIFICATION_REQUIRED",details:docs.flatMap(d=>d.errors)},{status:422});
       ocrConfidence=docs.length?Math.min(...docs.map(d=>d.confidence)):0;
+      documents=docs;
       for(const doc of docs.filter(d=>d.engine==="json")) {
         const source=JSON.parse(doc.text);
         const mapped=ParamsSchema.parse(Object.fromEntries(Object.entries({birthDate:source.birthDate??source.birth_date??source.date_naissance,licenseIssueDate:source.licenseIssueDate??source.license_issue_date??source.date_permis,licenseExpDate:source.licenseExpDate??source.license_exp_date}).filter(([,v])=>v!==undefined)));
         for(const [key,value] of Object.entries(mapped)) if(params[key as keyof typeof params]!==undefined&&params[key as keyof typeof params]!==value) return NextResponse.json({error:"CLARIFICATION_REQUIRED",needsHumanReview:true,details:["Conflit : "+key]},{status:409});
         params={...mapped,...params};
       }
-      message+="\n"+docs.map(d=>d.text).join("\n");
-      if(message.length>50000) return NextResponse.json({error:"Documents trop longs."},{status:413});
+      if(message.length+docs.reduce((n,d)=>n+d.text.length,0)>50000) return NextResponse.json({error:"Documents trop longs."},{status:413});
     } else { const body=ChatRequestSchema.parse(await request.json());message=body.message;params=body.params; }
-    const result=await runAgent(KiraaStateSchema.parse({requestId:randomUUID(),rawInput:message,params,ocrConfidence}));
+    const result=await runAgent(KiraaStateSchema.parse({requestId:randomUUID(),sessionId,userMessage:message,rawInput:message,documents,params,ocrConfidence}));
     if(result.validation.isValid===true&&typeof result.priceResult.totalPrice==="number") {
       try {
         const pdf=await generateQuotePdf(result);
