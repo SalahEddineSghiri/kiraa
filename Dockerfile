@@ -4,6 +4,7 @@ WORKDIR /app
 ENV NEXT_TELEMETRY_DISABLED=1
 COPY package.json package-lock.json ./
 RUN npm ci
+RUN npx playwright install --with-deps chromium
 COPY . .
 FROM tooling AS build
 RUN npm run build
