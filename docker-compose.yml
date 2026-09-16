@@ -25,6 +25,17 @@ services:
       start_period: 30s
     restart: unless-stopped
     networks: [kiraa]
+  init:
+    build:
+      context: .
+      target: tooling
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-kiraa}:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}@db:5432/${POSTGRES_DB:-kiraa}
+    command: ["sh", "-c", "npm run db:migrate && npm run db:seed"]
+    depends_on: { db: { condition: service_healthy } }
+    networks: [kiraa]
+    restart: "no"
   app:
     build: .
     env_file: .env
@@ -32,7 +43,7 @@ services:
       DATABASE_URL: postgresql://${POSTGRES_USER:-kiraa}:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}@db:5432/${POSTGRES_DB:-kiraa}
       NODE_ENV: production
     expose: ["3000"]
-    depends_on: { db: { condition: service_healthy } }
+    depends_on: { init: { condition: service_completed_successfully } }
     healthcheck: { test: ["CMD-SHELL", "node -e \"fetch('http://127.0.0.1:3000/api/health',{signal:AbortSignal.timeout(4000)}).then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\""], interval: 10s, timeout: 5s, retries: 12, start_period: 30s }
     restart: unless-stopped
     networks: [kiraa]
@@ -42,7 +53,7 @@ services:
       TLS_ENABLED: ${TLS_ENABLED:-false}
       TLS_CERT_FILE: ${TLS_CERT_FILE:-/etc/nginx/certs/fullchain.pem}
       TLS_KEY_FILE: ${TLS_KEY_FILE:-/etc/nginx/certs/privkey.pem}
-    ports: ["80:80", "443:443"]
+    ports: ["${NGINX_BIND_IP:-127.0.0.1}:${NGINX_HTTP_PORT:-8080}:80"]
     volumes:
       - ${TLS_CERTS_DIR:-./certs}:/etc/nginx/certs:ro
     depends_on: { app: { condition: service_healthy } }

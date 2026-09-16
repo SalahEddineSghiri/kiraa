@@ -1,0 +1,26 @@
+# Add this server to the EXISTING public Nginx container.
+# Connect that container to kiraa_edge (external Docker network).
+# Keep its existing application's server blocks.
+server {
+  listen 80;
+  server_name kiraa.souki.io;
+  location / { return 301 https://kiraa.souki.io$request_uri; }
+}
+server {
+  listen 443 ssl;
+  server_name kiraa.souki.io;
+  # Adapt to the certificate mounts of YOUR existing proxy container.
+  ssl_certificate /etc/nginx/certs/kiraa.souki.io/fullchain.pem;
+  ssl_certificate_key /etc/nginx/certs/kiraa.souki.io/privkey.pem;
+  client_max_body_size 10m;
+  resolver 127.0.0.11 valid=10s ipv6=off;
+  set $kiraa_upstream kiraa-web:80;
+  location / {
+    proxy_pass http://$kiraa_upstream;
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_read_timeout 300s;
+  }
+}

@@ -1,0 +1,13 @@
+# Public 80/443 remain owned by the existing Nginx container.
+services:
+  nginx:
+    environment:
+      TLS_ENABLED: "false"
+    networks:
+      kiraa: {}
+      edge:
+        aliases: [kiraa-web]
+networks:
+  edge:
+    external: true
+    name: kiraa_edge
