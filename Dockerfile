@@ -1,5 +1,5 @@
 FROM node:22-slim AS tooling
-RUN apt-get update && apt-get install -y --no-install-recommends poppler-utils tesseract-ocr-eng tesseract-ocr-fra && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y --no-install-recommends poppler-utils tesseract-ocr tesseract-ocr-eng tesseract-ocr-fra && tesseract --version && tesseract --list-langs && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 ENV NEXT_TELEMETRY_DISABLED=1
 COPY package.json package-lock.json ./
@@ -10,7 +10,7 @@ RUN npm run build
 RUN npm prune --omit=dev
 
 FROM node:22-slim AS runtime
-RUN apt-get update && apt-get install -y --no-install-recommends poppler-utils tesseract-ocr-eng tesseract-ocr-fra && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y --no-install-recommends poppler-utils tesseract-ocr tesseract-ocr-eng tesseract-ocr-fra && tesseract --version && tesseract --list-langs && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 ENV NODE_ENV=production NEXT_TELEMETRY_DISABLED=1
 COPY --from=build --chown=node:node /app/package.json /app/package-lock.json ./
