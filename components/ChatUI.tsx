@@ -1,6 +1,13 @@
 "use client";
 import { useState } from "react";
 type Result={explanation?:string;error?:string;details?:string[];intent?:string;bookingStatus?:string;needsHumanReview?:boolean;report?:{url?:string};validation?:{status:string;errors:string[]};ocrConfidence?:number;extractedContent?:Record<string,unknown>;eligibilityResult?:Record<string,unknown>;escalationReasons?:string[];graphTrace?:string[]};
+function createSessionId(){
+  const bytes=crypto.getRandomValues(new Uint8Array(16));
+  bytes[6]=(bytes[6]&0x0f)|0x40;
+  bytes[8]=(bytes[8]&0x3f)|0x80;
+  const hex=Array.from(bytes,b=>b.toString(16).padStart(2,"0")).join("");
+  return `${hex.slice(0,8)}-${hex.slice(8,12)}-${hex.slice(12,16)}-${hex.slice(16,20)}-${hex.slice(20)}`;
+}
 export function ChatUI(){
   const [message,setMessage]=useState("");
   const [files,setFiles]=useState<FileList|null>(null),[result,setResult]=useState<Result>(),[busy,setBusy]=useState(false);
@@ -8,7 +15,7 @@ export function ChatUI(){
     setBusy(true);setResult(undefined);
     try {
       const form=new FormData();form.set("message",message);form.set("params","{}");
-      const sessionId=sessionStorage.getItem("kiraa-session")??crypto.randomUUID();
+      const sessionId=sessionStorage.getItem("kiraa-session")??createSessionId();
       sessionStorage.setItem("kiraa-session",sessionId);
       form.set("sessionId",sessionId);
       Array.from(files??[]).forEach(f=>form.append("files",f));
