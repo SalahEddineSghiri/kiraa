@@ -4,6 +4,7 @@ vi.mock("@/lib/agent/graph",()=>({runAgent:mocks.runAgent}));
 vi.mock("@/lib/ingestor",()=>({ingestFile:mocks.ingestFile}));
 vi.mock("@/lib/reporter",()=>({generateQuotePdf:vi.fn()}));
 import { POST } from "@/app/api/chat/route";
+import Groq from "groq-sdk";
 it("accepts a multipart message without an attachment",async()=>{
   const form=new FormData();form.set("message","Bonjour");form.set("params","{}");
   const result=await POST(new Request("http://localhost/api/chat",{method:"POST",body:form}));
@@ -20,4 +21,11 @@ it("accepts a licence alone and keeps the document separate from the user's inte
   expect(state.userMessage).toContain("éligibilité");
   expect(state.documents[0].text).toContain("PERMIS");
   expect(state.userMessage).not.toContain("PERMIS DE CONDUIRE 1990");
+});
+it("returns HTTP 429 when Groq reaches its quota",async()=>{
+  mocks.runAgent.mockRejectedValueOnce(Groq.APIError.generate(429,{},"quota",new Headers() as never));
+  const form=new FormData();form.set("message","Quelle est la politique d'annulation ?");form.set("params","{}");
+  const response=await POST(new Request("http://localhost/api/chat",{method:"POST",body:form}));
+  expect(response.status).toBe(429);
+  expect((await response.json()).error).toContain("Quota Groq");
 });

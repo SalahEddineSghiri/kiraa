@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
+import Groq from "groq-sdk";
 import { ChatRequestSchema, KiraaStateSchema, ParamsSchema } from "@/lib/schemas/contracts";
 import { runAgent } from "@/lib/agent/graph";
 import { ingestFile, type Ingested } from "@/lib/ingestor";
@@ -45,7 +46,9 @@ export async function POST(request:Request) {
     return NextResponse.json(result);
   } catch(error) {
     if(error instanceof z.ZodError||error instanceof SyntaxError) return NextResponse.json({error:"Entrée ou réponse structurée invalide. Veuillez préciser votre demande."},{status:422});
-    console.error("chat failed",error instanceof Error?error.name:"UnknownError");
+    if(error instanceof Groq.RateLimitError) return NextResponse.json({error:"Quota Groq atteint. Réessayez après la réinitialisation indiquée par Groq."},{status:429});
+    if(error instanceof Groq.AuthenticationError) return NextResponse.json({error:"La configuration Groq du serveur est invalide."},{status:503});
+    console.error("chat failed",{type:error instanceof Error?error.name:"UnknownError",status:error instanceof Groq.APIError?error.status:undefined});
     return NextResponse.json({error:"Service temporairement indisponible. Réessayez plus tard."},{status:503});
   }
 }

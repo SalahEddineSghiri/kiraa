@@ -1,5 +1,14 @@
 import { test, expect } from "@playwright/test";
 
+async function sendAndRead(page:import("@playwright/test").Page){
+  const pending=page.waitForResponse(r=>r.url().includes("/api/chat")&&r.request().method()==="POST",{timeout:110000});
+  await page.getByRole("button",{name:"Analyser"}).click();
+  const response=await pending;
+  const body=await response.json().catch(()=>({error:"Réponse non JSON"}));
+  expect(response.ok(),`/api/chat HTTP ${response.status()}: ${body.error??"échec sans message"}${body.details?" — "+body.details.join("; "):""}`).toBe(true);
+  return body;
+}
+
 test("la page et le chat sont utilisables",async({page})=>{
   await page.goto("/");
   await expect(page.getByRole("textbox",{name:"Message"})).toBeVisible();
@@ -13,8 +22,9 @@ test("un permis image seul est envoyé au vrai OCR et ne déclenche pas la polit
   const png=await page.screenshot();
   await page.goto("/");
   await page.getByLabel("Upload documents").setInputFiles({name:"permis.png",mimeType:"image/png",buffer:png});
-  await page.getByRole("button",{name:"Analyser"}).click();
-  await expect(page.getByText("Confiance OCR :",{exact:false})).toBeVisible({timeout:100000});
+  const result=await sendAndRead(page);
+  expect(result.ocrConfidence).toBeGreaterThan(0);
+  await expect(page.getByText("Confiance OCR :",{exact:false})).toBeVisible();
   await expect(page.getByText("Intention : policy_query")).toHaveCount(0);
   await expect(page.getByText("Validation :",{exact:false})).toBeVisible();
 });
@@ -22,7 +32,8 @@ test("un permis image seul est envoyé au vrai OCR et ne déclenche pas la polit
 test("une question de politique affiche une source RAG réelle",async({page})=>{
   await page.goto("/");
   await page.getByRole("textbox",{name:"Message"}).fill("Quelle est la politique d'annulation 48 heures avant le départ ?");
-  await page.getByRole("button",{name:"Analyser"}).click();
-  await expect(page.getByText("Intention : policy_query")).toBeVisible({timeout:100000});
+  const result=await sendAndRead(page);
+  expect(result.intent).toBe("policy_query");
+  await expect(page.getByText("Intention : policy_query")).toBeVisible();
   await expect(page.getByText("rental_policies.md",{exact:false})).toBeVisible();
 });
