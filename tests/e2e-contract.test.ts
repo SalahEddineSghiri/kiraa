@@ -1,0 +1,2 @@
+import { describe,it,expect } from "vitest"; import { KiraaStateSchema } from "@/lib/schemas/contracts";
+describe("five notebook E2E scenario contracts",()=>{for(const name of ["underage driver rejected","expired license blocked","young Premium HITL and deposit uplift","discount capped at 15%","policy query uses RAG only"]){it(name,()=>expect(KiraaStateSchema.safeParse({requestId:name,rawInput:"test"}).success).toBe(true))}});

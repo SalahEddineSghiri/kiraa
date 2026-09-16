@@ -1,0 +1,53 @@
+services:
+  db:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-kiraa}
+      POSTGRES_USER: ${POSTGRES_USER:-kiraa}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+      POSTGRES_HOST_AUTH_METHOD: scram-sha-256
+      POSTGRES_INITDB_ARGS: --auth-host=scram-sha-256
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./docker/postgres/init:/docker-entrypoint-initdb.d:ro
+    shm_size: 128mb
+    stop_grace_period: 60s
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          PGPASSWORD="$$POSTGRES_PASSWORD" PGCONNECT_TIMEOUT=3
+          psql -h 127.0.0.1 -U "$$POSTGRES_USER" -d "$$POSTGRES_DB"
+          -X -v ON_ERROR_STOP=1 -tAc "SELECT '[0]'::vector" > /dev/null
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+    restart: unless-stopped
+    networks: [kiraa]
+  app:
+    build: .
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-kiraa}:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}@db:5432/${POSTGRES_DB:-kiraa}
+      NODE_ENV: production
+    expose: ["3000"]
+    depends_on: { db: { condition: service_healthy } }
+    healthcheck: { test: ["CMD-SHELL", "node -e \"fetch('http://127.0.0.1:3000/api/health',{signal:AbortSignal.timeout(4000)}).then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\""], interval: 10s, timeout: 5s, retries: 12, start_period: 30s }
+    restart: unless-stopped
+    networks: [kiraa]
+  nginx:
+    build: ./nginx
+    environment:
+      TLS_ENABLED: ${TLS_ENABLED:-false}
+      TLS_CERT_FILE: ${TLS_CERT_FILE:-/etc/nginx/certs/fullchain.pem}
+      TLS_KEY_FILE: ${TLS_KEY_FILE:-/etc/nginx/certs/privkey.pem}
+    ports: ["80:80", "443:443"]
+    volumes:
+      - ${TLS_CERTS_DIR:-./certs}:/etc/nginx/certs:ro
+    depends_on: { app: { condition: service_healthy } }
+    healthcheck: { test: ["CMD-SHELL", "wget -q -O - http://127.0.0.1/nginx-health | grep -q ok"], interval: 10s, timeout: 5s, retries: 12 }
+    restart: unless-stopped
+    networks: [kiraa]
+volumes: { postgres_data: {} }
+networks: { kiraa: { driver: bridge } }

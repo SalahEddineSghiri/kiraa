@@ -1,0 +1,13 @@
+node_modules
+.next
+.git
+.env
+.env.*
+coverage
+certs
+**/*.ipynb
+**/*.pdf
+samples
+nginx
+*.log
+*.dump

@@ -1,0 +1,7 @@
+{
+  "files.associations": {
+    "**/nginx/**/*.conf": "nginx",
+    "**/nginx/conf.d/proxy_params": "nginx",
+    "**/nginx/conf.d/security_headers": "nginx"
+  }
+}
